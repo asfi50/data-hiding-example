@@ -276,7 +276,7 @@
                         extractedBits += getLSB(data[i + 2]);
 
                         // Check if we've found the delimiter
-                        if (extractedBits.length > DELIMITER.length) {
+                        if (extractedBits.length >= DELIMITER.length) {
                             if (extractedBits.slice(-DELIMITER.length) === DELIMITER) {
                                 extractedBits = extractedBits.slice(0, -DELIMITER.length); // Remove delimiter
                                 delimiterFound = true;
