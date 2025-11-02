@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steganography Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            text-align: center;
+            color: #005a9c;
+        }
+        .container {
+            display: flex;
+            gap: 30px;
+        }
+        .box {
+            flex: 1;
+            background: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        textarea, input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        button {
+            background-color: #0078d4;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            transition: background-color 0.3s;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        button:hover:not(:disabled) {
+            background-color: #005a9c;
+        }
+        canvas {
+            max-width: 100%;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .output {
+            margin-top: 20px;
+        }
+        #downloadLink {
+            display: none;
+            text-align: center;
+            margin-top: 15px;
+            padding: 10px;
+            background: #e6f7ff;
+            border: 1px solid #b3e0ff;
+            border-radius: 4px;
+            color: #005a9c;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        #decodedMessage {
+            background: #fff;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 10px;
+            min-height: 50px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Image Steganography Demo (LSB)</h1>
+    
+    <div class="container">
+        <div class="box">
+            <h2>1. Encode Message</h2>
+            <label for="encodeFile">Upload Image (PNG recommended):</label>
+            <input type="file" id="encodeFile" accept="image/png, image/jpeg">
+            
+            <label for="message">Enter Secret Message:</label>
+            <textarea id="message" placeholder="Type your secret message here..."></textarea>
+            
+            <button id="encodeBtn" disabled>Encode Message</button>
+            
+            <div class="output">
+                <strong>Original Image:</strong>
+                <canvas id="originalCanvas"></canvas>
+            </div>
+            <div class="output">
+                <strong>Image with Hidden Message:</strong>
+                <canvas id="stegoCanvas"></canvas>
+                <a id="downloadLink" href="#" download="stego-image.png">Download Encoded Image (as PNG)</a>
+            </div>
+        </div>
+
+        <div class="box">
+            <h2>2. Decode Message</h2>
+            <label for="decodeFile">Upload Encoded Image (PNG):</label>
+            <input type="file" id="decodeFile" accept="image/png">
+            
+            <button id="decodeBtn" disabled>Decode Message</button>
+            
+            <div class="output">
+                <strong>Decoded Message:</strong>
+                <div id="decodedMessage">...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DELIMITER ---
+        // A special sequence of bits to mark the end of the message
+        const DELIMITER = "11111111000000001111111100000000"; // 32 bits
+
+        // --- DOM Elements ---
+        const encodeFileInput = document.getElementById('encodeFile');
+        const messageInput = document.getElementById('message');
+        const encodeBtn = document.getElementById('encodeBtn');
+        
+        const decodeFileInput = document.getElementById('decodeFile');
+        const decodeBtn = document.getElementById('decodeBtn');
+        
+        const originalCanvas = document.getElementById('originalCanvas');
+        const stegoCanvas = document.getElementById('stegoCanvas');
+        const downloadLink = document.getElementById('downloadLink');
+        const decodedMessageDiv = document.getElementById('decodedMessage');
+
+        // --- State Check for Buttons ---
+        let encodeImageLoaded = false;
+        let decodeImageLoaded = false;
+
+        encodeFileInput.addEventListener('change', () => {
+            encodeImageLoaded = true;
+            checkEncodeReady();
+            previewImage(encodeFileInput, originalCanvas);
+        });
+        messageInput.addEventListener('input', checkEncodeReady);
+        
+        decodeFileInput.addEventListener('change', () => {
+            decodeImageLoaded = !!decodeFileInput.files[0];
+            decodeBtn.disabled = !decodeImageLoaded;
+        });
+
+        function checkEncodeReady() {
+            encodeBtn.disabled = !(encodeImageLoaded && messageInput.value.length > 0);
+        }
+
+        function previewImage(fileInput, canvas) {
+            const file = fileInput.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.drawImage(img, 0, 0);
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // --- ENCODING LOGIC ---
+        encodeBtn.addEventListener('click', () => {
+            const img = new Image();
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                img.onload = () => {
+                    // Draw original image to its canvas
+                    const oCtx = originalCanvas.getContext('2d');
+                    originalCanvas.width = img.width;
+                    originalCanvas.height = img.height;
+                    oCtx.drawImage(img, 0, 0);
+
+                    // Get message bits
+                    let message = messageInput.value;
+                    let messageBits = textToBinary(message) + DELIMITER;
+
+                    // Draw to stego canvas to get pixel data
+                    const sCtx = stegoCanvas.getContext('2d');
+                    stegoCanvas.width = img.width;
+                    stegoCanvas.height = img.height;
+                    sCtx.drawImage(img, 0, 0);
+
+                    const imageData = sCtx.getImageData(0, 0, img.width, img.height);
+                    const data = imageData.data; // This is a Uint8ClampedArray [R, G, B, A, R, G, B, A, ...]
+
+                    // Check if message fits
+                    const maxBits = data.length * 0.75; // ~3 bits per pixel (R, G, B)
+                    if (messageBits.length > maxBits) {
+                        alert('Error: Message is too long for this image.');
+                        return;
+                    }
+
+                    // Embed bits
+                    let bitIndex = 0;
+                    for (let i = 0; i < data.length; i += 4) { // Iterate pixels
+                        if (bitIndex >= messageBits.length) break;
+                        
+                        // R channel
+                        data[i] = setLSB(data[i], messageBits[bitIndex++]);
+                        if (bitIndex >= messageBits.length) break;
+                        
+                        // G channel
+                        data[i + 1] = setLSB(data[i + 1], messageBits[bitIndex++]);
+                        if (bitIndex >= messageBits.length) break;
+
+                        // B channel
+                        data[i + 2] = setLSB(data[i + 2], messageBits[bitIndex++]);
+                        
+                        // We skip the Alpha channel (data[i + 3])
+                    }
+
+                    // Put modified data back
+                    sCtx.putImageData(imageData, 0, 0);
+
+                    // Show download link
+                    downloadLink.href = stegoCanvas.toDataURL('image/png');
+                    downloadLink.style.display = 'block';
+                    alert('Message encoded successfully! You can now download the image.');
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(encodeFileInput.files[0]);
+        });
+        
+        // --- DECODING LOGIC ---
+        decodeBtn.addEventListener('click', () => {
+            const img = new Image();
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    const imageData = ctx.getImageData(0, 0, img.width, img.height);
+                    const data = imageData.data;
+                    
+                    let extractedBits = "";
+                    let delimiterFound = false;
+
+                    for (let i = 0; i < data.length; i += 4) {
+                        extractedBits += getLSB(data[i]);
+                        extractedBits += getLSB(data[i + 1]);
+                        extractedBits += getLSB(data[i + 2]);
+
+                        // Check if we've found the delimiter
+                        if (extractedBits.length > DELIMITER.length) {
+                            if (extractedBits.slice(-DELIMITER.length) === DELIMITER) {
+                                extractedBits = extractedBits.slice(0, -DELIMITER.length); // Remove delimiter
+                                delimiterFound = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (delimiterFound) {
+                        const decodedText = binaryToText(extractedBits);
+                        decodedMessageDiv.textContent = decodedText;
+                    } else {
+                        decodedMessageDiv.textContent = "No message found or image is corrupt.";
+                    }
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(decodeFileInput.files[0]);
+        });
+
+
+        // --- HELPER FUNCTIONS ---
+
+        // Converts a string to its 8-bit binary representation
+        function textToBinary(text) {
+            return text.split('').map(char => {
+                return char.charCodeAt(0).toString(2).padStart(8, '0');
+            }).join('');
+        }
+
+        // Converts a binary string (in 8-bit chunks) back to text
+        function binaryToText(binary) {
+            let text = '';
+            for (let i = 0; i < binary.length; i += 8) {
+                const byte = binary.slice(i, i + 8);
+                if (byte.length < 8) break; // Incomplete byte
+                text += String.fromCharCode(parseInt(byte, 2));
+            }
+            return text;
+        }
+
+        // Sets the Least Significant Bit (LSB) of a number
+        // number: a byte (0-255), bit: a string '0' or '1'
+        function setLSB(number, bit) {
+            if (bit === '1') {
+                return number | 1; // OR with ...0001
+            }
+            return number & 254; // AND with ...1110
+        }
+
+        // Gets the Least Significant Bit (LSB) of a number
+        // Returns '0' or '1'
+        function getLSB(number) {
+            return (number & 1).toString();
+        }
+
+    </script>
+</body>
+</html>
